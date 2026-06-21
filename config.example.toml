@@ -1,0 +1,3 @@
+[accounts]
+main = { username = "user@example.com", password = "pass1" }
+backup = { username = "backup@example.com", password = "pass2" }
