@@ -573,9 +573,9 @@ func cleanPath(p string) string {
 }
 
 // IsFileID reports whether s matches the PikPak file/folder ID format,
-// e.g. "VOw7XmbR7CNXy-Fk9WWu7cQho2" (22 characters of [A-Za-z0-9_-]).
+// e.g. "VOw7XmbR7CNXy-Fk9WWu7cQho2" (26 characters of [A-Za-z0-9_-]).
 func IsFileID(s string) bool {
-	if len(s) != 22 {
+	if len(s) != 26 {
 		return false
 	}
 	for _, c := range s {
