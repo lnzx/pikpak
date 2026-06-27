@@ -206,15 +206,14 @@ func (c *Client) Quota(ctx context.Context) (*QuotaMessage, error) {
 func (c *Client) ListFiles(ctx context.Context, remotePath string) ([]FileStat, error) {
 	parentID := ""
 	if cleanPath(remotePath) != "/" {
-		if strings.Contains(remotePath, "/") {
+		if IsFileID(remotePath) {
+			parentID = remotePath
+		} else {
 			id, err := c.FolderIDByPath(ctx, remotePath)
 			if err != nil {
 				return nil, err
 			}
 			parentID = id
-		} else {
-			// treat as folder ID
-			parentID = remotePath
 		}
 	}
 	return c.ListByParentID(ctx, parentID)
@@ -321,10 +320,10 @@ func (c *Client) EmptyTrash(ctx context.Context) error {
 func (c *Client) Download(ctx context.Context, target, output string, opts DownloadOptions) error {
 	var f *File
 	var err error
-	if strings.Contains(target, "/") {
-		f, err = c.FileByPath(ctx, target)
-	} else {
+	if IsFileID(target) {
 		f, err = c.File(ctx, target)
+	} else {
+		f, err = c.FileByPath(ctx, target)
 	}
 	if err != nil {
 		return err
@@ -571,6 +570,20 @@ func cleanPath(p string) string {
 		return "/"
 	}
 	return path.Clean(p)
+}
+
+// IsFileID reports whether s matches the PikPak file/folder ID format,
+// e.g. "VOw7XmbR7CNXy-Fk9WWu7cQho2" (22 characters of [A-Za-z0-9_-]).
+func IsFileID(s string) bool {
+	if len(s) != 22 {
+		return false
+	}
+	for _, c := range s {
+		if !((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_' || c == '-') {
+			return false
+		}
+	}
+	return true
 }
 
 func splitRemotePath(p string) []string {

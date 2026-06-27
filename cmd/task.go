@@ -8,6 +8,8 @@ import (
 	"strings"
 	"text/tabwriter"
 
+	"github.com/lnzx/pikpak/internal/pikpak"
+
 	"github.com/urfave/cli/v3"
 )
 
@@ -58,13 +60,13 @@ var taskAddCmd = &cli.Command{
 		}
 		parentID := ""
 		if folder := c.String("folder"); folder != "" {
-			if strings.Contains(folder, "/") {
+			if pikpak.IsFileID(folder) {
+				parentID = folder
+			} else {
 				parentID, err = client.FolderIDByPath(ctx, folder)
 				if err != nil {
 					return err
 				}
-			} else {
-				parentID = folder
 			}
 		}
 		submitted, failures := 0, 0

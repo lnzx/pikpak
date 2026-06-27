@@ -26,8 +26,8 @@ var listCmd = &cli.Command{
 	Name:        "list",
 	Aliases:     []string{"ls"},
 	Usage:       "list files in current account",
-	ArgsUsage:   "[/remote-path | folder-id]",
-	Description: "Path must start with / (e.g. /My Pack). Without a leading /, the argument is treated as a folder ID.",
+	ArgsUsage:   "[path | folder-id]",
+	Description: "If the argument matches a file/folder ID format (e.g. VOw7XmbR7CNXy-Fk9WWu7cQho2), it is treated as a folder ID; otherwise it is treated as a path (e.g. /My Pack or a folder name).",
 	Action: func(ctx context.Context, c *cli.Command) error {
 		remotePath := "/"
 		if c.Args().Present() {
