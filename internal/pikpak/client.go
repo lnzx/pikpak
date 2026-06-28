@@ -572,18 +572,46 @@ func cleanPath(p string) string {
 	return path.Clean(p)
 }
 
-// IsFileID reports whether s matches the PikPak file/folder ID format,
-// e.g. "VOw7XmbR7CNXy-Fk9WWu7cQho2" (26 characters of [A-Za-z0-9_-]).
+// IsFileID reports whether s matches the PikPak file/folder ID format.
+// PikPak IDs are exactly 26 characters long, e.g. "VOw7XmbR7CNXy-Fk9WWu7cQho2".
+// Rules:
+// - If contains '/', it's a path, not an ID
+// - Length must be exactly 26
+// - Must contain uppercase, lowercase letters, and digits
+// - May contain '-' (hyphen)
+// - Only allows [A-Za-z0-9-] characters (no underscore)
 func IsFileID(s string) bool {
+	// If contains '/', it's a path
+	if strings.Contains(s, "/") {
+		return false
+	}
+
+	// Must be exactly 26 characters
 	if len(s) != 26 {
 		return false
 	}
+
+	hasUpper := false
+	hasLower := false
+	hasDigit := false
+
 	for _, c := range s {
-		if !((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_' || c == '-') {
+		switch {
+		case c >= 'A' && c <= 'Z':
+			hasUpper = true
+		case c >= 'a' && c <= 'z':
+			hasLower = true
+		case c >= '0' && c <= '9':
+			hasDigit = true
+		case c == '-':
+			// Valid separator
+		default:
 			return false
 		}
 	}
-	return true
+
+	// Must have mixed case and digits
+	return hasUpper && hasLower && hasDigit
 }
 
 func splitRemotePath(p string) []string {
