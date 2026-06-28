@@ -7,10 +7,11 @@ func TestIsFileID(t *testing.T) {
 		s    string
 		want bool
 	}{
-		// Valid IDs (exactly 26 chars, mixed case + digits, may have -)
+		// Valid IDs (exactly 26 chars, mixed case + digits, may have - or _)
 		{"VOw7XmbR7CNXy-Fk9WWu7cQho2", true},  // 26 chars with -
 		{"VOtJdblUjGOYYEEcFFYJmo8oo2", true},  // 26 chars without -
 		{"VOwDrfHEL1n6I5mr2b3SsoUdo2", true},  // 26 chars
+		{"VOwDqFzGnU3bZ7j6_O7OLlIco2", true},  // 26 chars with _
 		{"abcDEF123xyzUVWXYZ456qrst0", true},  // 26 chars mixed case + digits
 		{"Aa1Bb2Cc3Dd4Ee5Ff6Gg7Hh8Ij", true},  // 26 chars mixed
 
@@ -33,13 +34,13 @@ func TestIsFileID(t *testing.T) {
 		{"aBcDeFgHiJkLmNoPqRsTuVwXyZ", false}, // mixed case but no digits
 
 		// 26 chars but contains invalid characters
-		{"My_Documents_Folder_2024!", false},  // 26 chars but has _ and !
-		{"My_Documents_Folder_2024", false},   // 26 chars but has _
+		{"My_Documents_Folder_2024!", false},  // 26 chars but has !
+		{"My_Documents_Folder_2024", false},   // 24 chars, wrong length
 		{"My Pack and more files!!", false},   // has spaces and !
 		{"file.txt.backup.old.2024", false},   // has dots
 
 		// 26 chars, mixed case, has digits, but has invalid chars
-		{"aBc123XyZ-test_file_Name", false},   // has _ (underscore not allowed)
+		{"aBc123XyZ-test_file_Name", false},   // 24 chars, wrong length
 		{"aBc123XyZ test file Name", false},   // has spaces
 		{"aBc123XyZ.test.file.Name", false},   // has dots
 	}

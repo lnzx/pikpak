@@ -578,8 +578,8 @@ func cleanPath(p string) string {
 // - If contains '/', it's a path, not an ID
 // - Length must be exactly 26
 // - Must contain uppercase, lowercase letters, and digits
-// - May contain '-' (hyphen)
-// - Only allows [A-Za-z0-9-] characters (no underscore)
+// - May contain '-' (hyphen) or '_' (underscore)
+// - Only allows [A-Za-z0-9_-] characters
 func IsFileID(s string) bool {
 	// If contains '/', it's a path
 	if strings.Contains(s, "/") {
@@ -603,8 +603,8 @@ func IsFileID(s string) bool {
 			hasLower = true
 		case c >= '0' && c <= '9':
 			hasDigit = true
-		case c == '-':
-			// Valid separator
+		case c == '-' || c == '_':
+			// Valid separators
 		default:
 			return false
 		}
