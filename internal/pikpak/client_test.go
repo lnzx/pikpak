@@ -11,7 +11,7 @@ func TestIsFileID(t *testing.T) {
 		{"VOw7XmbR7CNXy-Fk9WWu7cQho2", true},  // 26 chars with -
 		{"VOtJdblUjGOYYEEcFFYJmo8oo2", true},  // 26 chars without -
 		{"VOwDrfHEL1n6I5mr2b3SsoUdo2", true},  // 26 chars
-		{"abcDEF123xyzUVWXYZ456qrst", true},   // 26 chars mixed case + digits
+		{"abcDEF123xyzUVWXYZ456qrst0", true},  // 26 chars mixed case + digits
 		{"Aa1Bb2Cc3Dd4Ee5Ff6Gg7Hh8Ij", true},  // 26 chars mixed
 
 		// Contains '/' - definitely a path
@@ -20,8 +20,8 @@ func TestIsFileID(t *testing.T) {
 		{"VOw7XmbR7CNXy-Fk9WWu7cQho2/sub", false}, // even if first part looks like ID
 
 		// Wrong length (not 26)
-		{"VOw7XmbR7CNXy-Fk9WWu7cQfo2", false},  // 24 chars, too short
-		{"abc123ABC_-0987654321", false},       // 20 chars
+		{"VOw7XmbR7CNXy-Fk9WWu7cQf", false},   // 24 chars, too short
+		{"abc123ABC-0987654321", false},       // 22 chars
 		{"short", false},
 		{"", false},
 		{"a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5", false}, // 32 chars, too long
