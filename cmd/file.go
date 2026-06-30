@@ -33,26 +33,62 @@ var listCmd = &cli.Command{
 		if c.Args().Present() {
 			remotePath = c.Args().First()
 		}
-		client, acc, err := clientFromContext(ctx, c)
+
+		p, err := poolFromContext(ctx, c)
 		if err != nil {
 			return err
 		}
-		files, err := client.ListFiles(ctx, remotePath)
-		if err != nil {
-			return err
-		}
-		fmt.Printf("account: %s path: %s\n", acc.Alias, remotePath)
-		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(w, "TYPE\tSIZE\tMODIFIED\tID\tNAME")
-		for _, f := range files {
-			typ := "file"
-			if f.Kind == "drive#folder" {
-				typ = "dir"
+
+		// Single-account mode.
+		if p == nil {
+			client, acc, err := clientFromContext(ctx, c)
+			if err != nil {
+				return err
 			}
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", typ, pikpak.ByteSize(f.Size), f.ModifiedTime.Format("2006-01-02 15:04:05"), f.ID, f.Name)
+			files, err := client.ListFiles(ctx, remotePath)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("account: %s path: %s\n", acc.Alias, remotePath)
+			return printFileTable(files)
 		}
-		return w.Flush()
+
+		// Multi-account mode: iterate all accounts.
+		clients, accounts, err := p.ClientsForAll(ctx)
+		if err != nil {
+			return err
+		}
+		first := true
+		for i, client := range clients {
+			files, err := client.ListFiles(ctx, remotePath)
+			if err != nil {
+				fmt.Printf("account: %s error=%v\n", accounts[i].Alias, err)
+				continue
+			}
+			if !first {
+				fmt.Println()
+			}
+			first = false
+			fmt.Printf("account: %s path: %s\n", accounts[i].Alias, remotePath)
+			if err := printFileTable(files); err != nil {
+				return err
+			}
+		}
+		return nil
 	},
+}
+
+func printFileTable(files []pikpak.FileStat) error {
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(w, "TYPE\tSIZE\tMODIFIED\tID\tNAME")
+	for _, f := range files {
+		typ := "file"
+		if f.Kind == "drive#folder" {
+			typ = "dir"
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", typ, pikpak.ByteSize(f.Size), f.ModifiedTime.Format("2006-01-02 15:04:05"), f.ID, f.Name)
+	}
+	return w.Flush()
 }
 
 var deleteCmd = &cli.Command{
