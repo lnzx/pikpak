@@ -12,7 +12,7 @@ import (
 
 const AppName = "pikpak"
 
-func configDir() (string, error) {
+func ConfigDir() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("resolve home dir: %w", err)
@@ -21,7 +21,7 @@ func configDir() (string, error) {
 }
 
 func configFile() (string, error) {
-	dir, err := configDir()
+	dir, err := ConfigDir()
 	if err != nil {
 		return "", err
 	}
@@ -29,7 +29,7 @@ func configFile() (string, error) {
 }
 
 func SessionsDir() (string, error) {
-	dir, err := configDir()
+	dir, err := ConfigDir()
 	if err != nil {
 		return "", err
 	}

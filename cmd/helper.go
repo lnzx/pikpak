@@ -8,6 +8,7 @@ import (
 
 	"github.com/lnzx/pikpak/internal/config"
 	"github.com/lnzx/pikpak/internal/pikpak"
+	"github.com/lnzx/pikpak/internal/pool"
 	"github.com/urfave/cli/v3"
 )
 
@@ -38,6 +39,25 @@ func clientFromContext(ctx context.Context, c *cli.Command) (*pikpak.Client, con
 		return nil, config.Account{}, err
 	}
 	return client, acc, nil
+}
+
+// poolFromContext returns an AccountPool when the user did NOT specify -a.
+// When -a is given (alias != ""), it returns nil — callers should use
+// clientFromContext instead for single-account mode.
+func poolFromContext(ctx context.Context, c *cli.Command) (*pool.AccountPool, error) {
+	if c.String("account") != "" {
+		return nil, nil // caller checks: nil pool means single-account mode
+	}
+	cfg := config.FromContext(ctx)
+	accounts := cfg.AllAccounts()
+	if len(accounts) == 0 {
+		return nil, nil
+	}
+	sessionDir, err := config.SessionsDir()
+	if err != nil {
+		return nil, err
+	}
+	return pool.New(accounts, sessionDir), nil
 }
 
 func readLines(path string) ([]string, error) {

@@ -9,6 +9,7 @@ import (
 	"text/tabwriter"
 
 	"github.com/lnzx/pikpak/internal/pikpak"
+	"github.com/lnzx/pikpak/internal/pool"
 
 	"github.com/urfave/cli/v3"
 )
@@ -54,48 +55,110 @@ var taskAddCmd = &cli.Command{
 		if len(urls) == 0 {
 			return errors.New("task add requires url or -i file")
 		}
-		client, acc, err := clientFromContext(ctx, c)
+
+		p, err := poolFromContext(ctx, c)
 		if err != nil {
 			return err
 		}
-		parentID := ""
-		if folder := c.String("folder"); folder != "" {
-			if pikpak.IsFileID(folder) {
-				parentID = folder
-			} else {
-				parentID, err = client.FolderIDByPath(ctx, folder)
-				if err != nil {
-					return err
-				}
-			}
-		}
-		submitted, failures := 0, 0
-		for _, rawURL := range urls {
-			if err := ctx.Err(); err != nil {
+
+		// Single-account mode: -a was specified, or only one account exists.
+		if p == nil {
+			client, acc, err := clientFromContext(ctx, c)
+			if err != nil {
 				return err
 			}
-			rawURL = strings.TrimSpace(rawURL)
-			if rawURL == "" {
-				continue
-			}
-			task, err := client.CreateOfflineTask(ctx, rawURL, parentID)
+			folderID, err := resolveFolder(ctx, client, c.String("folder"))
 			if err != nil {
-				failures++
-				fmt.Printf("failed\taccount=%s\turl=%s\terror=%v\n", acc.Alias, rawURL, err)
-				continue
+				return err
 			}
-			submitted++
-			name := task.Name
-			if name == "" {
-				name = task.FileName
+			state, err := pool.LoadState()
+			if err != nil {
+				return err
 			}
-			fmt.Printf("submitted\taccount=%s\ttask_id=%s\tphase=%s\tname=%s\n", acc.Alias, task.ID, task.Phase, name)
+			submitted, failures := submitTasks(ctx, client, acc.Alias, urls, folderID)
+			for _, id := range submitted {
+				state.AddTask(acc.Alias, id)
+			}
+			if err := pool.SaveState(state); err != nil {
+				return err
+			}
+			if failures > 0 {
+				return fmt.Errorf("submitted %d task(s), failed %d task(s)", len(submitted), failures)
+			}
+			return nil
+		}
+
+		// Multi-account mode: auto-select the best account.
+		acc, err := p.SelectForAdd(ctx)
+		if err != nil {
+			return err
+		}
+		client, err := p.ClientFor(ctx, acc)
+		if err != nil {
+			return err
+		}
+		folderID, err := resolveFolder(ctx, client, c.String("folder"))
+		if err != nil {
+			return err
+		}
+		state, err := pool.LoadState()
+		if err != nil {
+			return err
+		}
+		submitted, failures := submitTasks(ctx, client, acc.Alias, urls, folderID)
+		// Optimistic quota update.
+		if as := state.GetOrCreate(acc.Alias); as.QuotaCache != nil {
+			as.QuotaCache.CloudDownloadUsage += int64(len(submitted))
+		}
+		for _, id := range submitted {
+			state.AddTask(acc.Alias, id)
+		}
+		if err := pool.SaveState(state); err != nil {
+			return err
 		}
 		if failures > 0 {
-			return fmt.Errorf("submitted %d task(s), failed %d task(s)", submitted, failures)
+			return fmt.Errorf("submitted %d task(s), failed %d task(s)", len(submitted), failures)
 		}
 		return nil
 	},
+}
+
+// submitTasks creates an offline task for each URL and prints progress.
+// Returns the task IDs that were successfully submitted.
+func submitTasks(ctx context.Context, client *pikpak.Client, alias string, urls []string, parentID string) (submitted []string, failures int) {
+	for _, rawURL := range urls {
+		if err := ctx.Err(); err != nil {
+			return
+		}
+		rawURL = strings.TrimSpace(rawURL)
+		if rawURL == "" {
+			continue
+		}
+		task, err := client.CreateOfflineTask(ctx, rawURL, parentID)
+		if err != nil {
+			failures++
+			fmt.Printf("failed\taccount=%s\turl=%s\terror=%v\n", alias, rawURL, err)
+			continue
+		}
+		submitted = append(submitted, task.ID)
+		name := task.Name
+		if name == "" {
+			name = task.FileName
+		}
+		fmt.Printf("submitted\taccount=%s\ttask_id=%s\tphase=%s\tname=%s\n", alias, task.ID, task.Phase, name)
+	}
+	return
+}
+
+// resolveFolder returns the parent folder ID, or "" when no folder flag is set.
+func resolveFolder(ctx context.Context, client *pikpak.Client, folder string) (string, error) {
+	if folder == "" {
+		return "", nil
+	}
+	if pikpak.IsFileID(folder) {
+		return folder, nil
+	}
+	return client.FolderIDByPath(ctx, folder)
 }
 
 var taskListCmd = &cli.Command{
@@ -103,30 +166,62 @@ var taskListCmd = &cli.Command{
 	Aliases: []string{"ls"},
 	Usage:   "list remote offline tasks",
 	Action: func(ctx context.Context, c *cli.Command) error {
-		client, acc, err := clientFromContext(ctx, c)
+		p, err := poolFromContext(ctx, c)
 		if err != nil {
 			return err
 		}
-		tasks, err := client.OfflineTasks(ctx)
-		if err != nil {
-			return err
-		}
-		fmt.Printf("account: %s\n", acc.Alias)
-		if len(tasks) == 0 {
-			fmt.Println("no tasks")
+
+		// Single-account mode.
+		if p == nil {
+			client, acc, err := clientFromContext(ctx, c)
+			if err != nil {
+				return err
+			}
+			tasks, err := client.OfflineTasks(ctx)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("account: %s\n", acc.Alias)
+			printTaskTable(tasks)
 			return nil
 		}
-		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(w, "TASK_ID\tPHASE\tPROGRESS\tFILE_ID\tNAME\tMESSAGE")
-		for _, task := range tasks {
-			name := task.FileName
-			if name == "" {
-				name = task.Name
-			}
-			fmt.Fprintf(w, "%s\t%s\t%d%%\t%s\t%s\t%s\n", task.ID, task.Phase, task.Progress, task.FileID, name, task.Message)
+
+		// Multi-account mode: iterate all accounts.
+		clients, accounts, err := p.ClientsForAll(ctx)
+		if err != nil {
+			return err
 		}
-		return w.Flush()
+		for i, client := range clients {
+			tasks, err := client.OfflineTasks(ctx)
+			if err != nil {
+				fmt.Printf("account: %s error=%v\n", accounts[i].Alias, err)
+				continue
+			}
+			fmt.Printf("account: %s\n", accounts[i].Alias)
+			printTaskTable(tasks)
+			if i < len(clients)-1 {
+				fmt.Println()
+			}
+		}
+		return nil
 	},
+}
+
+func printTaskTable(tasks []pikpak.OfflineTask) {
+	if len(tasks) == 0 {
+		fmt.Println("no tasks")
+		return
+	}
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(w, "TASK_ID\tPHASE\tPROGRESS\tFILE_ID\tNAME\tMESSAGE")
+	for _, task := range tasks {
+		name := task.FileName
+		if name == "" {
+			name = task.Name
+		}
+		fmt.Fprintf(w, "%s\t%s\t%d%%\t%s\t%s\t%s\n", task.ID, task.Phase, task.Progress, task.FileID, name, task.Message)
+	}
+	w.Flush()
 }
 
 var taskDeleteCmd = &cli.Command{
@@ -138,20 +233,73 @@ var taskDeleteCmd = &cli.Command{
 		deleteFilesFlag,
 	},
 	Action: func(ctx context.Context, c *cli.Command) error {
-		client, acc, err := clientFromContext(ctx, c)
-		if err != nil {
-			return err
-		}
 		deleteFiles := c.Bool("delete-files")
 		ids := c.Args().Slice()
 		if len(ids) == 0 {
 			return fmt.Errorf("must specify at least one task id")
 		}
-		if err := client.DeleteTasks(ctx, deleteFiles, ids); err != nil {
+
+		p, err := poolFromContext(ctx, c)
+		if err != nil {
 			return err
 		}
-		fmt.Printf("account: %s delete tasks deleteFiles:%v OK\n", acc.Alias, deleteFiles)
-		return nil
+
+		// Single-account mode.
+		if p == nil {
+			client, acc, err := clientFromContext(ctx, c)
+			if err != nil {
+				return err
+			}
+			if err := client.DeleteTasks(ctx, deleteFiles, ids); err != nil {
+				return err
+			}
+			fmt.Printf("account: %s delete tasks deleteFiles:%v OK\n", acc.Alias, deleteFiles)
+			// Clean up local state.
+			state, _ := pool.LoadState()
+			if state != nil {
+				for _, id := range ids {
+					state.RemoveTask(acc.Alias, id)
+				}
+				pool.SaveState(state)
+			}
+			return nil
+		}
+
+		// Multi-account mode: find the owning account for each task ID.
+		state, err := pool.LoadState()
+		if err != nil {
+			return err
+		}
+		byAccount := make(map[string][]string) // alias -> task IDs
+		var unknown []string
+		for _, id := range ids {
+			owner := state.FindTaskOwner(id)
+			if owner == "" {
+				unknown = append(unknown, id)
+			} else {
+				byAccount[owner] = append(byAccount[owner], id)
+			}
+		}
+		if len(unknown) > 0 {
+			fmt.Printf("unknown task ids (not in local state): %s\n", strings.Join(unknown, ", "))
+		}
+
+		for alias, taskIDs := range byAccount {
+			client, acc, err := p.ClientForAlias(ctx, alias)
+			if err != nil {
+				fmt.Printf("account=%s error=%v\n", alias, err)
+				continue
+			}
+			if err := client.DeleteTasks(ctx, deleteFiles, taskIDs); err != nil {
+				fmt.Printf("account=%s error=%v\n", alias, err)
+				continue
+			}
+			fmt.Printf("account: %s delete tasks deleteFiles:%v OK\n", acc.Alias, deleteFiles)
+			for _, id := range taskIDs {
+				state.RemoveTask(alias, id)
+			}
+		}
+		return pool.SaveState(state)
 	},
 }
 
@@ -162,15 +310,55 @@ var taskClearCmd = &cli.Command{
 		deleteFilesFlag,
 	},
 	Action: func(ctx context.Context, c *cli.Command) error {
-		client, acc, err := clientFromContext(ctx, c)
+		deleteFiles := c.Bool("delete-files")
+
+		p, err := poolFromContext(ctx, c)
 		if err != nil {
 			return err
 		}
-		deleteFiles := c.Bool("delete-files")
-		if err := client.ClearTasks(ctx, deleteFiles); err != nil {
+
+		// Single-account mode.
+		if p == nil {
+			client, acc, err := clientFromContext(ctx, c)
+			if err != nil {
+				return err
+			}
+			if err := client.ClearTasks(ctx, deleteFiles); err != nil {
+				return err
+			}
+			fmt.Printf("account: %s clear tasks --delete-files:%v OK\n", acc.Alias, deleteFiles)
+			state, _ := pool.LoadState()
+			if state != nil {
+				state.ClearTasks(acc.Alias)
+				pool.SaveState(state)
+			}
+			return nil
+		}
+
+		// Multi-account mode: clear tasks for all accounts that have them.
+		state, err := pool.LoadState()
+		if err != nil {
 			return err
 		}
-		fmt.Printf("account: %s clear tasks --delete-files:%v OK\n", acc.Alias, deleteFiles)
-		return nil
+		aliases := state.AccountsWithTasks()
+		if len(aliases) == 0 {
+			fmt.Println("no tasks recorded in local state")
+			return nil
+		}
+
+		for _, alias := range aliases {
+			client, acc, err := p.ClientForAlias(ctx, alias)
+			if err != nil {
+				fmt.Printf("account=%s error=%v\n", alias, err)
+				continue
+			}
+			if err := client.ClearTasks(ctx, deleteFiles); err != nil {
+				fmt.Printf("account=%s error=%v\n", alias, err)
+				continue
+			}
+			fmt.Printf("account: %s clear tasks --delete-files:%v OK\n", acc.Alias, deleteFiles)
+			state.ClearTasks(alias)
+		}
+		return pool.SaveState(state)
 	},
 }

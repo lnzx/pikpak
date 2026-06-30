@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"os"
 	"text/tabwriter"
+	"time"
 
 	"github.com/lnzx/pikpak/internal/config"
 	"github.com/lnzx/pikpak/internal/pikpak"
+	"github.com/lnzx/pikpak/internal/pool"
 	"github.com/urfave/cli/v3"
 )
 
@@ -35,6 +37,12 @@ var QuotaCmd = &cli.Command{
 			fmt.Println("no accounts configured")
 			return nil
 		}
+
+		state, err := pool.LoadState()
+		if err != nil {
+			return err
+		}
+
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 		fmt.Fprintln(w, "ACCOUNT\tCLOUD_DOWNLOAD(REMAINING/TOTAL)\tSTORAGE")
 		for _, acc := range targets {
@@ -48,6 +56,14 @@ var QuotaCmd = &cli.Command{
 				fmt.Fprintf(w, "%s\tERROR\t%s\n", acc.Alias, err)
 				continue
 			}
+			// Persist quota snapshot into task state.
+			as := state.GetOrCreate(acc.Alias)
+			as.QuotaCache = &pool.QuotaSnapshot{
+				CloudDownloadLimit: q.Quotas.CloudDownload.Limit,
+				CloudDownloadUsage: q.Quotas.CloudDownload.Usage,
+				UpdatedAt:          time.Now(),
+			}
+
 			fmt.Fprintf(w, "%s\t%d/%d\t%s/%s\n",
 				acc.Alias,
 				q.Quotas.CloudDownload.Limit-q.Quotas.CloudDownload.Usage,
@@ -56,6 +72,9 @@ var QuotaCmd = &cli.Command{
 				pikpak.ByteSize(q.Quota.Limit),
 			)
 		}
-		return w.Flush()
+		if err := w.Flush(); err != nil {
+			return err
+		}
+		return pool.SaveState(state)
 	},
 }
