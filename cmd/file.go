@@ -125,41 +125,76 @@ var clearCmd = &cli.Command{
 		forceFlag,
 	},
 	Action: func(ctx context.Context, c *cli.Command) error {
-		client, acc, err := clientFromContext(ctx, c)
+		force := c.Bool("force")
+
+		p, err := poolFromContext(ctx, c)
 		if err != nil {
 			return err
 		}
-		fs, err := client.ListByParentID(ctx, "")
-		if err != nil {
-			return err
-		}
-		if len(fs) == 0 {
-			fmt.Println("no files to delete")
+
+		// Single-account mode.
+		if p == nil {
+			client, acc, err := clientFromContext(ctx, c)
+			if err != nil {
+				return err
+			}
+			n, err := clearAccountFiles(ctx, client, force)
+			if err != nil {
+				return err
+			}
+			if n == 0 {
+				fmt.Println("no files to delete")
+			} else {
+				fmt.Printf("account: %s clear all files OK\n", acc.Alias)
+			}
 			return nil
 		}
-		var ids []string
-		for _, f := range fs {
-			if f.Name == pikpak.DefaultFolder && f.Kind == pikpak.FileKindFolder {
-				pack, err := client.ListByParentID(ctx, f.ID)
-				if err != nil {
-					return err
-				}
-				for _, m := range pack {
-					ids = append(ids, m.ID)
-				}
-			} else {
-				ids = append(ids, f.ID)
+
+		// Multi-account mode: clear files for all accounts.
+		clients, accounts, err := p.ClientsForAll(ctx)
+		if err != nil {
+			return err
+		}
+		for i, client := range clients {
+			n, err := clearAccountFiles(ctx, client, force)
+			if err != nil {
+				fmt.Printf("account: %s error=%v\n", accounts[i].Alias, err)
+				continue
+			}
+			if n > 0 {
+				fmt.Printf("account: %s clear all files OK\n", accounts[i].Alias)
 			}
 		}
-		if len(ids) == 0 {
-			fmt.Println("no files to delete")
-			return nil
-		}
-		force := c.Bool("force")
-		if err = client.DeleteFiles(ctx, ids, force); err != nil {
-			return err
-		}
-		fmt.Printf("account: %s clear all files OK\n", acc.Alias)
 		return nil
 	},
+}
+
+// clearAccountFiles collects all top-level file IDs and deletes them.
+// Returns the number of files deleted.
+func clearAccountFiles(ctx context.Context, client *pikpak.Client, force bool) (int, error) {
+	fs, err := client.ListByParentID(ctx, "")
+	if err != nil {
+		return 0, err
+	}
+	if len(fs) == 0 {
+		return 0, nil
+	}
+	var ids []string
+	for _, f := range fs {
+		if f.Name == pikpak.DefaultFolder && f.Kind == pikpak.FileKindFolder {
+			pack, err := client.ListByParentID(ctx, f.ID)
+			if err != nil {
+				return 0, err
+			}
+			for _, m := range pack {
+				ids = append(ids, m.ID)
+			}
+		} else {
+			ids = append(ids, f.ID)
+		}
+	}
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	return len(ids), client.DeleteFiles(ctx, ids, force)
 }
