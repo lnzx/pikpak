@@ -183,6 +183,8 @@ var taskListCmd = &cli.Command{
 			}
 			fmt.Printf("account: %s\n", acc.Alias)
 			printTaskTable(tasks)
+			// Sync local task_ids with remote reality.
+			syncTaskState(acc.Alias, tasks)
 			return nil
 		}
 
@@ -199,6 +201,8 @@ var taskListCmd = &cli.Command{
 			}
 			fmt.Printf("account: %s\n", accounts[i].Alias)
 			printTaskTable(tasks)
+			// Sync local task_ids with remote reality.
+			syncTaskState(accounts[i].Alias, tasks)
 			if i < len(clients)-1 {
 				fmt.Println()
 			}
@@ -222,6 +226,22 @@ func printTaskTable(tasks []pikpak.OfflineTask) {
 		fmt.Fprintf(w, "%s\t%s\t%d%%\t%s\t%s\t%s\n", task.ID, task.Phase, task.Progress, task.FileID, name, task.Message)
 	}
 	w.Flush()
+}
+
+// syncTaskState rebuilds the local task_ids for alias from the remote task list.
+// Quota cache is preserved.
+func syncTaskState(alias string, tasks []pikpak.OfflineTask) {
+	state, err := pool.LoadState()
+	if err != nil {
+		return // best-effort, don't fail the command
+	}
+	ids := make([]string, 0, len(tasks))
+	for _, t := range tasks {
+		ids = append(ids, t.ID)
+	}
+	as := state.GetOrCreate(alias)
+	as.TaskIDs = ids
+	pool.SaveState(state) // best-effort
 }
 
 var taskDeleteCmd = &cli.Command{
