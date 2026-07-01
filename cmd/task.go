@@ -76,6 +76,10 @@ var taskAddCmd = &cli.Command{
 				return err
 			}
 			submitted, failures := submitTasks(ctx, client, acc.Alias, urls, folderID)
+			// Optimistic quota update: use cached usage as the base.
+			if as := state.GetOrCreate(acc.Alias); as.QuotaCache != nil {
+				as.QuotaCache.CloudDownloadUsage += int64(len(submitted))
+			}
 			for _, id := range submitted {
 				state.AddTask(acc.Alias, id)
 			}
@@ -228,19 +232,24 @@ func printTaskTable(tasks []pikpak.OfflineTask) {
 	w.Flush()
 }
 
-// syncTaskState rebuilds the local task_ids for alias from the remote task list.
-// Quota cache is preserved.
+// syncTaskState rebuilds the local task_ids and file_ids for alias from the remote
+// task list. Quota cache is preserved.
 func syncTaskState(alias string, tasks []pikpak.OfflineTask) {
 	state, err := pool.LoadState()
 	if err != nil {
 		return // best-effort, don't fail the command
 	}
 	ids := make([]string, 0, len(tasks))
+	fids := make([]string, 0, len(tasks))
 	for _, t := range tasks {
 		ids = append(ids, t.ID)
+		if t.FileID != "" {
+			fids = append(fids, t.FileID)
+		}
 	}
 	as := state.GetOrCreate(alias)
 	as.TaskIDs = ids
+	as.FileIDs = fids
 	pool.SaveState(state) // best-effort
 }
 

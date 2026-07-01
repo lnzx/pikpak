@@ -20,6 +20,7 @@ type QuotaSnapshot struct {
 // AccountState tracks offline tasks and a quota snapshot for one account.
 type AccountState struct {
 	TaskIDs     []string       `json:"task_ids"`
+	FileIDs     []string       `json:"file_ids,omitempty"`
 	QuotaCache  *QuotaSnapshot `json:"quota_cache,omitempty"`
 }
 
@@ -132,6 +133,57 @@ func (s TaskState) FindTaskOwner(taskID string) string {
 		}
 	}
 	return ""
+}
+
+// minFileIDPrefix is the minimum common prefix length used to match a sub-file
+// ID back to its originating account. Observed common prefix between a task's
+// top-level file_id and its child file_ids is ≥22 of 26 characters.
+const minFileIDPrefix = 20
+
+// FindFileOwner returns the account alias that owns the given file_id (exact match).
+func (s TaskState) FindFileOwner(fileID string) string {
+	for alias, acc := range s {
+		for _, id := range acc.FileIDs {
+			if id == fileID {
+				return alias
+			}
+		}
+	}
+	return ""
+}
+
+// FindFileOwnerByPrefix returns the account alias whose recorded file_ids share
+// the longest common prefix with fileID (threshold minFileIDPrefix). Returns ""
+// when no account reaches the threshold.
+func (s TaskState) FindFileOwnerByPrefix(fileID string) string {
+	bestAlias := ""
+	bestLen := 0
+	for alias, acc := range s {
+		for _, id := range acc.FileIDs {
+			n := commonPrefixLen(fileID, id)
+			if n > bestLen {
+				bestLen = n
+				bestAlias = alias
+			}
+		}
+	}
+	if bestLen >= minFileIDPrefix {
+		return bestAlias
+	}
+	return ""
+}
+
+// commonPrefixLen returns the length of the longest common prefix of a and b.
+func commonPrefixLen(a, b string) int {
+	n := len(a)
+	if len(b) < n {
+		n = len(b)
+	}
+	i := 0
+	for i < n && a[i] == b[i] {
+		i++
+	}
+	return i
 }
 
 // AccountsWithTasks returns aliases that have at least one recorded task.

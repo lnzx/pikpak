@@ -34,6 +34,21 @@ var listCmd = &cli.Command{
 			remotePath = c.Args().First()
 		}
 
+		// When a file_id is provided without -a, auto-resolve which account
+		// owns it instead of scanning all accounts.
+		if c.String("account") == "" && pikpak.IsFileID(remotePath) {
+			client, acc, err := resolveFileIDAccount(ctx, c, remotePath)
+			if err != nil {
+				return err
+			}
+			files, err := client.ListFiles(ctx, remotePath)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("account: %s path: %s\n", acc.Alias, remotePath)
+			return printFileTable(files)
+		}
+
 		p, err := poolFromContext(ctx, c)
 		if err != nil {
 			return err

@@ -37,7 +37,9 @@ func (p *AccountPool) ClientFor(ctx context.Context, acc config.Account) (*pikpa
 // SelectForAdd picks the best account for a new offline task.
 // It reads the cached quota from task state and returns the account
 // with the most remaining cloud_download slots.
-// Falls back to the first account when no quota cache is available.
+// Falls back to the first uncached account when all cached accounts
+// have no remaining slots. Callers should update the cache with
+// QuotaSnapshot after successful task submission.
 func (p *AccountPool) SelectForAdd(ctx context.Context) (config.Account, error) {
 	if len(p.accounts) == 0 {
 		return config.Account{}, fmt.Errorf("no accounts configured")
@@ -78,11 +80,10 @@ func (p *AccountPool) SelectForAdd(ctx context.Context) (config.Account, error) 
 		return ci.acc.Alias < cj.acc.Alias
 	})
 
-	// If the best candidate has remaining <= 0 and we have other uncached accounts,
-	// fall back to the first uncached one (they might still have quota).
+	// If the best cached account has no remaining slots, fall back to an
+	// uncached account (it may still have quota — we haven't queried it yet).
 	best := candidates[0]
-	if best.remaining == 0 {
-		// Try an uncached account that might still have quota.
+	if best.remaining <= 0 {
 		for _, c := range candidates {
 			if c.remaining < 0 {
 				return c.acc, nil
